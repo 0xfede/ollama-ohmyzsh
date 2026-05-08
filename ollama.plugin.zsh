@@ -12,7 +12,7 @@
 # COMPINIT
 # ---------------------------------------------------------------
 
-autoload -Uz compinit 2>/dev/null
+autoload -Uz compinit _init_completion
 compinit -d "$ZSH/.cache/zcompdump-${HOSTNAME:-localhost}" 2>/dev/null || true
 
 # ---------------------------------------------------------------
