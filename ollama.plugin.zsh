@@ -242,10 +242,10 @@ for m in models:
 '
 }
 
-ollama_all() {       # All locally available models.
+ollama_all() {        # All locally available models.
     command ollama list 2>/dev/null \
-        | awk 'NR>1{sub(/:sha256.*/,"",$1); printf "%-56s %s\n",$1,$3}' 
-    || print -r -- "(no models found)" >&2
+         | awk 'NR>1{sub(/:sha256.*/,"",$1); printf "%-56s %s\n",$1,$3}' \
+     || print -r -- "(no models found)" >&2
 }
 
 ollama_info() {   # Metadata about a specific model.
@@ -269,6 +269,6 @@ ollama_rm_all() {   # Remove every locally pulled model.
     esac
 }
 
-# Quick aliases (only if user hasn't defined them already).
-alias ora='ollama_running'   || true
-alias allmods='ollama_all'  || true
+# Quick aliases (conditionally, so we don't clobber user definitions).
+type -w ora >/dev/null 2>&1 || alias ora='ollama_running'
+type -w allmods >/dev/null 2>&1 || alias allmods='ollama_all'
