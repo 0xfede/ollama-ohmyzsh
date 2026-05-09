@@ -1,85 +1,71 @@
----
-name: ollama-ohmyzsh
-description: Oh My Zsh plugin for Ollama with tab completion and handy aliases.
-version: 0.1.0
----
+# ollama-ohmyzsh
 
-# ollama-ohmyzsh ⚡🦙
-
-An **Oh My Zsh plugin** for [Ollama](https://ollama.com) providing tab completion, model-status helpers, and quick-run aliases.
+An Oh My Zsh plugin providing **context-aware tab completion** for the
+[Ollama](https://ollama.com) CLI, plus a few handy aliases.
 
 ## Features
 
-- **Full tab completion** for every Ollama subcommand (run, stop, pull, delete, push, create, cp, tags, rm all accept model names).
-- **Dual model resolution** — completes from `ollama list` output **and** from the running API (`/api/tags`), so `ollama stop <TAB>` works even for models not on disk but currently loaded in VRAM.
-- **Quick-run helpers**:
-  - `o [model]` → `ollama run [model]`
-  - `orc` → restarts the Ollama service (via launchd) and opens it.
-- **Status helpers**:
-  - `ollama-running` → shows all currently running models with resource usage.
-  - `ollama-info <model>` → shows model metadata.
-  - `ollama-all` → lists every locally available model with size/tag info.
-- **Batch operations**:
-  - `ollama-rm-all` → removes every locally pulled model (with confirmation).
+Completion adapts to the subcommand you're typing:
+
+| You type              | TAB completes with                                  |
+|-----------------------|-----------------------------------------------------|
+| `ollama <TAB>`        | All subcommands (`run`, `pull`, `ps`, `launch`, …)  |
+| `ollama run <TAB>`    | Local models **and** the ollama.com library         |
+| `ollama stop <TAB>`   | Only models currently loaded (from `ollama ps`)     |
+| `ollama pull <TAB>`   | Models from the ollama.com library                  |
+| `ollama pull foo:<TAB>` | Tags for `foo` scraped from ollama.com/library/foo |
+| `ollama push <TAB>`   | Local model names                                   |
+| `ollama show <TAB>`   | Local model names                                   |
+| `ollama rm <TAB>`     | Local model names (multi-arg)                       |
+| `ollama cp <TAB>`     | Local model names (source), then free name (dest)   |
+| `ollama create <TAB>` | Free name, `-f` takes a Modelfile                   |
+| `ollama launch <TAB>` | Known integrations (`claude`, `codex`, `vscode`, …) |
+| `ollama help <TAB>`   | Help topics                                         |
+
+Flags are completed too (`--verbose`, `--keepalive`, `--think`,
+`--quantize`, `--insecure`, etc.).
+
+Registry lookups are cached for 24 hours in
+`~/.cache/ollama-ohmyzsh/`. Override with `OLLAMA_COMPLETION_CACHE_TTL`
+(seconds).
+
+## Aliases
+
+| Alias  | Command        |
+|--------|----------------|
+| `ol`   | `ollama`       |
+| `olr`  | `ollama run`   |
+| `olp`  | `ollama pull`  |
+| `olls` | `ollama list`  |
+| `olps` | `ollama ps`    |
+| `olrm` | `ollama rm`    |
+| `olst` | `ollama stop`  |
 
 ## Installation
 
-### Via Antigen
-```zsh
-antigen bundle 0xfede/ollama-ohmyzsh
+Clone into your Oh My Zsh custom plugins directory:
+
+```bash
+git clone https://github.com/0xfede/ollama-ohmyzsh.git \
+    ~/.oh-my-zsh/custom/plugins/ollama
 ```
 
-### Via Oh My Zsh (manual, custom plugin)
+Then enable it in `~/.zshrc`:
 
-1. Clone this repo into your custom plugins dir:
-   ```bash
-   mkdir -p ~/.oh-my-zsh/custom/plugins
-   git clone https://github.com/0xfede/ollama-ohmyzsh.git \
-       ~/.oh-my-zsh/custom/plugins/ollama
-   ```
-
-2. Add `ollama` to your plugins list in `~/.zshrc`:
-   ```zsh
-   plugins=(... ollama)
-   ```
-
-3. Reload your shell:
-   ```bash
-   source ~/.zshrc
-   ```
-
-### Via zinit
 ```zsh
-zinit load 0xfede/ollama-ohmyzsh
+plugins=(... ollama)
 ```
 
-## Usage
+Reload your shell:
 
-After installation, all completions take effect immediately. Convenience functions are also available:
+```bash
+exec zsh
+```
 
-| Command          | What it does                        |
-|------------------|-------------------------------------|
-| `o [model]`      | Quick `ollama run [model]`           |
-| `orc`            | Restart Ollama (launchctl reboot)   |
-| `ollama-running` | Show currently loaded models + usage |
-| `ollama-info X`  | Show model metadata                  |
-| `ollama-all`     | List every locally available model   |
-| `ollama-rm-all`  | Delete all local models (prompt)    |
+## Requirements
 
-## Completion Reference
+- `zsh` + Oh My Zsh
+- `ollama` (for local-model completions)
+- `curl` (for registry completions)
 
-| Command               | Completions for `<model>`           |
-|-----------------------|-------------------------------------|
-| `ollama run <TAB>`    | All local + running models          |
-| `ollama stop <TAB>`   | Only **running** models             |
-| `ollama delete <TAB>` | All local + running models          |
-| `ollama rm <TAB>`     | All local + running models          |
-| `ollama pull <TAB>`   | Registry suggestions (via `ollama search`) |
-| `ollama push <TAB>`   | Local model names                   |
-| `ollama cp <TAB>`     | All local + running models          |
-| `ollama create <TAB>` | Existing model names as base        |
-| `ollama show <TAB>`   | Flags: `--embeddings` `--verbose` … |
-
-## Credits
-
-Inspired by the [official Ollama Zsh completion](https://github.com/ollama/ollama/blob/main/integration/zsh/_ollama). Extended for Oh My Zsh with convenience wrappers and interactive helpers.
+The plugin honors `$OLLAMA_HOST` (defaults to `127.0.0.1:11434`).

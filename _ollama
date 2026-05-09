@@ -1,0 +1,290 @@
+#compdef ollama
+# Oh My Zsh completion for the `ollama` CLI.
+# Contextual: `stop` completes running models, `rm`/`show`/`push` complete
+# local models, `pull` completes models from the ollama.com library, etc.
+
+# ---------------------------------------------------------------------------
+# helpers
+# ---------------------------------------------------------------------------
+
+: ${OLLAMA_HOST:=127.0.0.1:11434}
+
+__ollama_api_base() {
+    local h=$OLLAMA_HOST
+    [[ $h == http://* || $h == https://* ]] || h="http://$h"
+    print -r -- "$h"
+}
+
+__ollama_list_names() {
+    # First column of `ollama list` (skips header, blanks, error lines).
+    ollama list 2>/dev/null | awk 'NR>1 && $1!="" && $1!="NAME" {print $1}'
+}
+
+__ollama_ps_names() {
+    ollama ps 2>/dev/null | awk 'NR>1 && $1!="" && $1!="NAME" {print $1}'
+}
+
+__ollama_registry_list() {
+    # Scrape https://ollama.com/library once per day and cache.
+    local cache_dir="${XDG_CACHE_HOME:-$HOME/.cache}/ollama-ohmyzsh"
+    local cache="$cache_dir/library.txt"
+    local ttl=${OLLAMA_COMPLETION_CACHE_TTL:-86400}
+    [[ -d $cache_dir ]] || mkdir -p "$cache_dir" 2>/dev/null
+    local now=$EPOCHSECONDS mtime=0
+    if [[ -f $cache ]]; then
+        mtime=$(zstat +mtime -- "$cache" 2>/dev/null) || \
+        mtime=$(stat -f %m "$cache" 2>/dev/null) || \
+        mtime=$(stat -c %Y "$cache" 2>/dev/null) || mtime=0
+    fi
+    if (( now - mtime > ttl )) || [[ ! -s $cache ]]; then
+        curl -sSfL --max-time 5 https://ollama.com/library 2>/dev/null \
+            | grep -oE '/library/[a-zA-Z0-9._-]+' \
+            | sed 's|^/library/||' \
+            | sort -u > "$cache.tmp" 2>/dev/null \
+            && [[ -s "$cache.tmp" ]] && mv "$cache.tmp" "$cache" \
+            || rm -f "$cache.tmp"
+    fi
+    [[ -s $cache ]] && cat "$cache"
+}
+
+__ollama_registry_tags_for() {
+    # $1: base model (e.g. "llama3.2"). Prints "llama3.2:tag" lines.
+    local model=$1
+    [[ -z $model ]] && return 0
+    local cache_dir="${XDG_CACHE_HOME:-$HOME/.cache}/ollama-ohmyzsh"
+    local cache="$cache_dir/tags-${model//\//_}.txt"
+    local ttl=${OLLAMA_COMPLETION_CACHE_TTL:-86400}
+    [[ -d $cache_dir ]] || mkdir -p "$cache_dir" 2>/dev/null
+    local now=$EPOCHSECONDS mtime=0
+    if [[ -f $cache ]]; then
+        mtime=$(zstat +mtime -- "$cache" 2>/dev/null) || \
+        mtime=$(stat -f %m "$cache" 2>/dev/null) || \
+        mtime=$(stat -c %Y "$cache" 2>/dev/null) || mtime=0
+    fi
+    if (( now - mtime > ttl )) || [[ ! -s $cache ]]; then
+        curl -sSfL --max-time 5 "https://ollama.com/library/${model}/tags" 2>/dev/null \
+            | grep -oE "${model}:[a-zA-Z0-9._-]+" \
+            | sort -u > "$cache.tmp" 2>/dev/null \
+            && [[ -s "$cache.tmp" ]] && mv "$cache.tmp" "$cache" \
+            || rm -f "$cache.tmp"
+    fi
+    [[ -s $cache ]] && cat "$cache"
+}
+
+# ---------------------------------------------------------------------------
+# completion state functions
+# ---------------------------------------------------------------------------
+
+_ollama_local_models() {
+    local -a models
+    models=(${(f)"$(__ollama_list_names)"})
+    (( ${#models[@]} )) || { _message 'no local models'; return 1; }
+    compadd -X 'local model' -- "${models[@]}"
+}
+
+_ollama_running_models() {
+    local -a models
+    models=(${(f)"$(__ollama_ps_names)"})
+    (( ${#models[@]} )) || { _message 'no running models'; return 1; }
+    compadd -X 'running model' -- "${models[@]}"
+}
+
+_ollama_registry_models() {
+    # If user is typing something like "llama3.2:" fetch tags for that base.
+    local word=${words[CURRENT]}
+    local -a cands
+    if [[ $word == *:* ]]; then
+        local base=${word%%:*}
+        cands=(${(f)"$(__ollama_registry_tags_for "$base")"})
+        (( ${#cands[@]} )) && compadd -X 'ollama.com tag' -- "${cands[@]}"
+    fi
+    cands=(${(f)"$(__ollama_registry_list)"})
+    (( ${#cands[@]} )) && compadd -X 'ollama.com model' -- "${cands[@]}"
+}
+
+_ollama_run_candidates() {
+    # `ollama run` accepts either a local model or anything from the registry.
+    local -a local_m
+    local_m=(${(f)"$(__ollama_list_names)"})
+    (( ${#local_m[@]} )) && compadd -X 'local model' -- "${local_m[@]}"
+    _ollama_registry_models
+}
+
+_ollama_integrations() {
+    local -a ints=(
+        'claude:Claude Code'
+        'cline:Cline'
+        'codex:Codex'
+        'copilot:Copilot CLI'
+        'copilot-cli:Copilot CLI'
+        'droid:Droid'
+        'hermes:Hermes Agent'
+        'kimi:Kimi Code CLI'
+        'opencode:OpenCode'
+        'openclaw:OpenClaw'
+        'clawdbot:OpenClaw'
+        'moltbot:OpenClaw'
+        'pi:Pi'
+        'pool:Pool'
+        'vscode:VS Code'
+        'code:VS Code'
+    )
+    _describe -t integrations 'integration' ints
+}
+
+# ---------------------------------------------------------------------------
+# per-subcommand dispatchers
+# ---------------------------------------------------------------------------
+
+_ollama_cmd_run() {
+    _arguments -s \
+        '--verbose[show timings for response]' \
+        '--nowordwrap[do not wrap words automatically]' \
+        '--hidethinking[hide thinking output]' \
+        '--insecure[use an insecure registry]' \
+        '--format[response format (e.g. json)]:format:(json)' \
+        '--keepalive[duration to keep model loaded]:duration' \
+        '--think[enable thinking mode]::mode:(true false high medium low)' \
+        '--experimental[enable experimental agent loop with tools]' \
+        '--experimental-websearch[enable web search tool]' \
+        '--experimental-yolo[skip tool approval prompts]' \
+        '--dimensions[truncate embeddings to N dims]:n' \
+        '--truncate[truncate inputs exceeding context length]' \
+        '--width[image width]:n' \
+        '--height[image height]:n' \
+        '--steps[denoising steps]:n' \
+        '--seed[random seed]:n' \
+        '--negative[negative prompt]:prompt' \
+        '1: :_ollama_run_candidates' \
+        '*::prompt:'
+}
+
+_ollama_cmd_stop() {
+    _arguments '1: :_ollama_running_models'
+}
+
+_ollama_cmd_pull() {
+    _arguments \
+        '--insecure[use an insecure registry]' \
+        '1: :_ollama_registry_models'
+}
+
+_ollama_cmd_push() {
+    _arguments \
+        '--insecure[use an insecure registry]' \
+        '1: :_ollama_local_models'
+}
+
+_ollama_cmd_show() {
+    _arguments \
+        '--license[show license]' \
+        '--modelfile[show Modelfile]' \
+        '--parameters[show parameters]' \
+        '--system[show system message]' \
+        '--template[show template]' \
+        '(-v --verbose)'{-v,--verbose}'[show detailed model information]' \
+        '1: :_ollama_local_models'
+}
+
+_ollama_cmd_rm() {
+    _arguments '*: :_ollama_local_models'
+}
+
+_ollama_cmd_cp() {
+    _arguments \
+        '1:source model:_ollama_local_models' \
+        '2:destination name:'
+}
+
+_ollama_cmd_create() {
+    _arguments \
+        '(-f --file)'{-f,--file}'[Modelfile path]:file:_files' \
+        '(-q --quantize)'{-q,--quantize}'[quantize to this level]:level:(q4_0 q4_1 q4_K_S q4_K_M q5_0 q5_1 q5_K_S q5_K_M q6_K q8_0 f16 f32)' \
+        '--draft-quantize[quantize draft model]:level' \
+        '--experimental[enable experimental safetensors creation]' \
+        '1:new model name:'
+}
+
+_ollama_cmd_serve() {
+    _arguments '(-h --help)'{-h,--help}'[help for serve]'
+}
+
+_ollama_cmd_launch() {
+    _arguments \
+        '--config[configure without launching]' \
+        '--model[model to use]:model:_ollama_local_models' \
+        '--restore[restore integration to default profile]' \
+        '(-y --yes)'{-y,--yes}'[auto-answer yes]' \
+        '1: :_ollama_integrations' \
+        '*::extra args:'
+}
+
+_ollama_cmd_help() {
+    local -a cmds=(
+        serve create show run stop pull push signin signout
+        list ls ps cp rm launch help
+    )
+    _describe -t commands 'help topic' cmds
+}
+
+# ---------------------------------------------------------------------------
+# top-level
+# ---------------------------------------------------------------------------
+
+_ollama_commands() {
+    local -a commands=(
+        'serve:Start Ollama server'
+        'start:Start Ollama server (alias for serve)'
+        'create:Create a model from a Modelfile'
+        'show:Show information for a model'
+        'run:Run a model'
+        'stop:Stop a running model'
+        'pull:Pull a model from a registry'
+        'push:Push a model to a registry'
+        'signin:Sign in to ollama.com'
+        'signout:Sign out from ollama.com'
+        'list:List models'
+        'ls:List models (alias for list)'
+        'ps:List running models'
+        'cp:Copy a model'
+        'rm:Remove a model'
+        'launch:Launch the Ollama menu or an integration'
+        'help:Help about any command'
+    )
+    _describe -t commands 'ollama command' commands
+}
+
+_ollama() {
+    local curcontext="$curcontext" state line
+    typeset -A opt_args
+
+    _arguments -C \
+        '(- *)'{-h,--help}'[help for ollama]' \
+        '(- *)'{-v,--version}'[show version information]' \
+        '--nowordwrap[do not wrap words automatically]' \
+        '--verbose[show timings for response]' \
+        '1: :_ollama_commands' \
+        '*::arg:->args' \
+        && return 0
+
+    case $state in
+        args)
+            case $line[1] in
+                run)                _ollama_cmd_run ;;
+                stop)               _ollama_cmd_stop ;;
+                pull)               _ollama_cmd_pull ;;
+                push)               _ollama_cmd_push ;;
+                show)               _ollama_cmd_show ;;
+                rm)                 _ollama_cmd_rm ;;
+                cp)                 _ollama_cmd_cp ;;
+                create)             _ollama_cmd_create ;;
+                serve|start)        _ollama_cmd_serve ;;
+                launch)             _ollama_cmd_launch ;;
+                help)               _ollama_cmd_help ;;
+                list|ls|ps|signin|signout) ;;
+            esac
+            ;;
+    esac
+}
+
+_ollama "$@"
